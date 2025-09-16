@@ -5,7 +5,7 @@
 from ahp_graph.DeviceGraph import *
 from ahp_graph.SSTGraph import *
 from architecture import architecture
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 
 class Ping():
@@ -55,7 +55,7 @@ def buildPython(graph: DeviceGraph) -> None:
     """
     devs: dict[str, Union[Ping, Pong]] = dict()
     # instantiate all the devices in the graph
-    for device in graph.devices:
+    for device in graph.devices.values():
         if device.type == 'Ping':
             devs[device.name] = eval(f'{device.library.split(".")[1]}('  # type: ignore[union-attr]
                                      f'"{device.name}", {args.repeats})')
@@ -110,7 +110,7 @@ def buildPython(graph: DeviceGraph) -> None:
             devs[name0].output = wrapper(devs[name1])
 
     # find the first Ping device and start the 'simulation'
-    for device in graph.devices:
+    for device in graph.devices.values():
         if device.type == 'Ping':
             devs[device.name].start()  # type: ignore[union-attr]
             break
