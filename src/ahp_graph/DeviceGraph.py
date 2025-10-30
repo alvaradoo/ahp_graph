@@ -517,7 +517,8 @@ class DeviceGraph:
                     )
 
         # Need to check if the provided assembly name is in the graph
-        # and if so make that our cluster
+        # and if so make that our cluster. If not found, fall back to the
+        # top-level graph so subgraph is always defined.
         if assembly is not None:
             dev = self.devices.get(assembly)
             if dev is not None:
@@ -534,7 +535,10 @@ class DeviceGraph:
                             label=label,
                             color='green',
                             fontcolor='green'
-                        ) 
+                        )
+            else:
+                # Assembly not present in this expanded view; use top level
+                subgraph = graph
         else:
             # No provided assembly, this is most likely the top level
             subgraph = graph
