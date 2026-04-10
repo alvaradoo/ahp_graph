@@ -6,6 +6,23 @@ constructed of other Devices. This combined with the DeviceGraph allows for
 hierarchical representations of a graph.
 """
 
+import os
+
+
+def _trace_level() -> int:
+    """Return configured trace level from environment."""
+    try:
+        return int(os.environ.get('AHP_TRACE_VERBOSE', '0'))
+    except ValueError:
+        return 0
+
+
+def _trace(msg: str, level: int = 1) -> None:
+    """Print trace logs for Device internals when enabled."""
+    if _trace_level() >= level:
+        rank = os.environ.get('AHP_TRACE_RANK', '?')
+        print(f"[AHP][rank={rank}][Device] {msg}")
+
 class SmallDeviceAttr(list):
     """
     Implement a low-memory attribute dictionary
@@ -182,6 +199,11 @@ class Device:
         self.partition = None
         self.type = self.__class__.__name__
         self.model = model
+        _trace(
+            f"Device.__init__ name={self.name} type={self.type} "
+            f"library={self.library} model={self.model}",
+            level=3,
+        )
         if self.library is None and not hasattr(self, "expand"):
             raise RuntimeError(f"Assemblies must define expand: {self.type}")
 
@@ -198,6 +220,10 @@ class Device:
         Assign a rank and optional thread to this device.
         """
         self.partition = (rank, thread)
+        _trace(
+            f"Device.set_partition name={self.name} partition={self.partition}",
+            level=2,
+        )
 
     def add_submodule(self, device: 'Device', slotName: str,
                       slotIndex: int = None) -> None:
@@ -215,6 +241,11 @@ class Device:
         if not self.subs:
             self.subs = []
         self.subs.append((device, slotName, slotIndex))
+        _trace(
+            f"Device.add_submodule parent={self.name} child={device.name} "
+            f"slot={slotName} index={slotIndex}",
+            level=2,
+        )
 
     def __getattr__(self, port: str) -> 'DevicePort':
         """
@@ -274,6 +305,10 @@ class Device:
         key = (port, number)
         if key not in self.ports:
             self.ports[key] = DevicePort(self, port, number)
+            _trace(
+                f"Device.port created device={self.name} port={port} number={number}",
+                level=4,
+            )
         return self.ports[key]
 
     def get_category(self) -> str:

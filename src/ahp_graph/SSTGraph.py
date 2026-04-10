@@ -11,6 +11,21 @@ from .Device import *
 from .DeviceGraph import *
 
 
+def _trace_level() -> int:
+    """Return configured trace level from environment."""
+    try:
+        return int(os.environ.get('AHP_TRACE_VERBOSE', '0'))
+    except ValueError:
+        return 0
+
+
+def _trace(msg: str, level: int = 1) -> None:
+    """Print trace logs for SSTGraph internals when enabled."""
+    if _trace_level() >= level:
+        rank = os.environ.get('AHP_TRACE_RANK', '?')
+        print(f"[AHP][rank={rank}][SSTGraph] {msg}")
+
+
 class SSTGraph(DeviceGraph):
     """
     SSTGraph is an extension to DeviceGraph that lets you build or
@@ -29,6 +44,10 @@ class SSTGraph(DeviceGraph):
         self.links = graph.links
         self.ports = graph.ports
         self.flattened = False
+        _trace(
+            f"SSTGraph.__init__ devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
 
     def _flatten(self, rank : int = 0, nranks : int = 1):
         """
@@ -38,6 +57,7 @@ class SSTGraph(DeviceGraph):
         once.
         """
         if not self.flattened:
+            _trace(f"_flatten start rank={rank} nranks={nranks}", level=1)
             if nranks == 1:
                 self.flatten()
                 self.verify_links()
@@ -47,6 +67,10 @@ class SSTGraph(DeviceGraph):
                 self.verify_links()
                 self.follow_links(rank, True)
             self.flattened = True
+            _trace(
+                f"_flatten complete rank={rank} devices={len(self.devices)} links={len(self.links)}",
+                level=1,
+            )
 
     def build(self, nranks: int = 1):
         """
@@ -58,14 +82,17 @@ class SSTGraph(DeviceGraph):
         setting nranks in this function to the total number of ranks used
         """
         if nranks == 1:
+            _trace("build start single-rank", level=1)
             self._flatten()
             self.__build_model(False)
         else:
             import sst
             rank = sst.getMyMPIRank()
+            _trace(f"build start multi-rank rank={rank} nranks={nranks}", level=1)
             self._flatten(rank, nranks)
             sst.setProgramOption("partitioner", "sst.self")
             self.__build_model(True)
+        _trace("build complete", level=1)
 
     def write_json(self,
                    filename: str,
@@ -93,6 +120,11 @@ class SSTGraph(DeviceGraph):
         if not os.path.exists(output):
             os.makedirs(output)
 
+        _trace(
+            f"write_json start file={filename} output={output} rank={rank} nranks={nranks}",
+            level=1,
+        )
+
         self._flatten(rank, nranks)
         if nranks == 1:
             self.__write_model(
@@ -105,6 +137,7 @@ class SSTGraph(DeviceGraph):
                 base + str(rank) + ext,
                 nranks,
                 program_options)
+        _trace("write_json complete", level=1)
 
     @staticmethod
     def __encode(attr: dict, stringify: bool = False) -> dict:
@@ -152,6 +185,10 @@ class SSTGraph(DeviceGraph):
         """
         import sst
         n2c = dict()
+        _trace(
+            f"__build_model start self_partition={self_partition} devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
 
         # Set up global parameters.
         global_params = self.__encode(self.attr)
@@ -182,6 +219,10 @@ class SSTGraph(DeviceGraph):
         # their attributes. Ignore Devices that have no library defined
         for d0 in self.devices.values():
             if d0.subOwner is None and d0.library is not None:
+                _trace(
+                    f"__build_model component name={d0.name} type={d0.library} partition={d0.partition}",
+                    level=2,
+                )
                 c0 = sst.Component(d0.name, d0.library)
                 d0.attr.update(type=d0.type, model=d0.model)
                 c0.addParams(self.__encode(d0.attr))
@@ -208,7 +249,12 @@ class SSTGraph(DeviceGraph):
                 else:
                     link = sst.Link(f'{p1}__{t}__{p0}')
                 latency = t if t != '0s' else '1ps'
+                _trace(
+                    f"__build_model connect {p0} <-> {p1} latency={latency}",
+                    level=2,
+                )
                 link.connect((c0, s0, latency), (c1, s1, latency))
+        _trace(f"__build_model complete rank={rank}", level=1)
 
     def __write_model(self,
                       filename: str,
@@ -218,6 +264,10 @@ class SSTGraph(DeviceGraph):
         Write this DeviceGraph out as JSON.
         """
         model = dict()
+        _trace(
+            f"__write_model start filename={filename} nranks={nranks} devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
 
         #
         # Write the program options to the model.
@@ -330,3 +380,4 @@ class SSTGraph(DeviceGraph):
         #
         with open(filename, "wb") as jfile:
             jfile.write(orjson.dumps(model, option=orjson.OPT_INDENT_2))
+        _trace(f"__write_model complete filename={filename}", level=1)

@@ -12,6 +12,21 @@ import collections
 import pygraphviz
 from .Device import *
 
+
+def _trace_level() -> int:
+    """Return configured trace level from environment."""
+    try:
+        return int(os.environ.get('AHP_TRACE_VERBOSE', '0'))
+    except ValueError:
+        return 0
+
+
+def _trace(msg: str, level: int = 1) -> None:
+    """Print trace logs for DeviceGraph internals when enabled."""
+    if _trace_level() >= level:
+        rank = os.environ.get('AHP_TRACE_RANK', '?')
+        print(f"[AHP][rank={rank}][DeviceGraph] {msg}")
+
 def _orderedtuple(p0, p1):
     "generate a tuple ordered by member id()"
     if id(p0) < id(p1):
@@ -46,6 +61,7 @@ class DeviceGraph:
         self.expand_new_devices = None
 
         self.debug = False
+        _trace("DeviceGraph.__init__ created empty graph", level=2)
 
     def dealloc(self):
         """
@@ -96,6 +112,10 @@ class DeviceGraph:
             if p1.device.name not in self.devices:
                 self.add(p1.device)
             self.links[_orderedtuple(p1, p2)] = latency
+            _trace(
+                f"_link_other_port expanded-through assembly: {p1} <-> {p2} latency={latency}",
+                level=2,
+            )
             if self.expand_new_links is not None:
                 self.expand_new_links.append((p1,p2))
 
@@ -151,6 +171,7 @@ class DeviceGraph:
             p1.link = p0
         key = _orderedtuple(p0, p1)
         self.links[key] = latency
+        _trace(f"link created: {p0} <-> {p1} latency={latency}", level=2)
         if self.expand_new_links is not None:
             self.expand_new_links.append(key)
 
@@ -173,6 +194,11 @@ class DeviceGraph:
                 device.partition = self.expanding.partition
 
         self.devices[device.name] = device
+        _trace(
+            f"add device name={device.name} type={device.type} "
+            f"library={device.library} sub={sub}",
+            level=2,
+        )
         if self.expand_new_devices is not None:
             self.expand_new_devices.add(device)
 
@@ -207,6 +233,10 @@ class DeviceGraph:
 
     def verify_links(self) -> None:
         """Verify that all required ports are linked up."""
+        _trace(
+            f"verify_links start devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
         # Create a map of Devices to all ports linked on those Devices.
         d2ports = collections.defaultdict(set)
         for p0, p1 in self.links:
@@ -218,6 +248,7 @@ class DeviceGraph:
             for name, info in device.portinfo.items():
                 if info[2] and name not in d2ports[device]:
                     raise RuntimeError(f"{device.name} requires port {name}")
+        _trace("verify_links complete", level=1)
 
     def check_partition(self) -> None:
         """
@@ -226,6 +257,7 @@ class DeviceGraph:
         for d in self.devices.values():
             if d.partition is None:
                 raise RuntimeError(f"No partition for Device: {d.name}")
+        _trace(f"check_partition complete for {len(self.devices)} devices", level=1)
 
     def prune(self, rank: int) -> None:
         """
@@ -234,6 +266,10 @@ class DeviceGraph:
         graphs in parallel.
         """
         self.check_partition()
+        _trace(
+            f"prune start rank={rank} devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
 
         links_to_remove = list()
         devices_to_keep = set()
@@ -285,18 +321,27 @@ class DeviceGraph:
         for device in set(self.devices.values()).difference(devices_to_keep):
             del self.devices[device.name]
             device.dealloc()
+        _trace(
+            f"prune complete rank={rank} devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
 
     def _expand_device(self, device):
         """
         Expand a device and do some basic sanity checking.
 
         """
+        _trace(f"_expand_device start {device.name}", level=1)
         self.expanding = device
         device.expand(self)
         self.expanding = None
 
         del self.devices[device.name]
         device.dealloc()
+        _trace(
+            f"_expand_device done {device.name}; devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
 
         #
         # Check that all of the links associated with the device have
@@ -319,6 +364,10 @@ class DeviceGraph:
         save memory
         """
         self.check_partition()
+        _trace(
+            f"follow_links start rank={rank} prune={prune} links={len(self.links)}",
+            level=1,
+        )
 
         if prune:
             self.prune(rank)
@@ -349,6 +398,11 @@ class DeviceGraph:
             # Otherwise, iterate over the devices and expand them one-by-one.
             #
             more_to_expand = len(devices_to_expand) > 0
+            if more_to_expand:
+                _trace(
+                    f"follow_links expanding {len(devices_to_expand)} assemblies",
+                    level=1,
+                )
 
             for device in devices_to_expand:
                 if prune:
@@ -392,6 +446,10 @@ class DeviceGraph:
                 self.expand_new_links = None
                 self.expand_new_devices = None
                 self.expanding = None
+        _trace(
+            f"follow_links complete rank={rank} devices={len(self.devices)} links={len(self.links)}",
+            level=1,
+        )
 
     def flatten(self, levels: int = None, name: str = None,
                 rank: int = None, expand: set = None) -> None:
@@ -417,6 +475,12 @@ class DeviceGraph:
         # rank if provided, and be within the expand set if provided
         if levels == 0:
             return
+
+        _trace(
+            f"flatten call levels={levels} name={name} rank={rank} "
+            f"devices={len(self.devices)}",
+            level=1,
+        )
 
         assemblies = set()
         if name is not None:
@@ -449,6 +513,11 @@ class DeviceGraph:
         # Expand the required Devices
         for device in assemblies:
             self._expand_device(device)
+
+        _trace(
+            f"flatten expanded {len(assemblies)} assemblies; devices={len(self.devices)}",
+            level=1,
+        )
 
         if expand is None:
             # Recursively flatten
