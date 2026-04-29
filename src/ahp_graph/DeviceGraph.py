@@ -120,7 +120,8 @@ class DeviceGraph:
                 self.expand_new_links.append((p1,p2))
 
     def link(self, p0: DevicePort, p1: DevicePort,
-             latency: str = '0s') -> None:
+             latency: str = '0s',
+             my_rank = 0) -> None:
         """
         Link two DevicePorts with latency if provided.
 
@@ -136,6 +137,11 @@ class DeviceGraph:
             raise RuntimeError(f"{p0} or {p1} is callable. This probably means"
                                f" you have a multi port and didn't pick a port"
                                f" number (ex. Device.portX(portNum))")
+
+        if p0.device.partition[0] != my_rank and p1.device.partition[0] != my_rank:
+            if p0.device.library is not None and p1.device.library is not None:
+                print("We get in here!")
+                return
 
         if self.expanding is not None:
             if p0.device == self.expanding:
