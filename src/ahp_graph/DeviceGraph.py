@@ -154,6 +154,64 @@ class DeviceGraph:
         if self.expand_new_links is not None:
             self.expand_new_links.append(key)
 
+    def link_opt(self, p0: DevicePort, p1: DevicePort, my_rank: int,
+             latency: str = '0s') -> None:
+        """
+        Link two DevicePorts with latency if provided.
+
+        Links are bidirectional and the key is a frozenset of the two
+        DevicePorts. Duplicate links (links between the same DevicePorts)
+        are not permitted. Keep in mind that a unique DevicePort is created
+        for each port number in a multi-port style port. If the link
+        types to not match, then throw an exception. Devices that are linked
+        to will be added to the graph automatically.  Latency is expressed
+        as a string with time units (ps, ns, us...)
+        """
+        if callable(p0) or callable(p1):
+            raise RuntimeError(f"{p0} or {p1} is callable. This probably means"
+                               f" you have a multi port and didn't pick a port"
+                               f" number (ex. Device.portX(portNum))")
+
+        if self.expanding is not None:
+            if p0.device == self.expanding:
+                self._link_other_port(p0, p1)
+                return
+            elif p1.device == self.expanding:
+                self._link_other_port(p1, p0)
+                return
+
+        if p0.device.partition[0] != my_rank and p1.device.partition[0] != my_rank:
+            return
+
+        if p0 in self.ports or p1 in self.ports:
+            raise RuntimeError(f'{p0} or {p1} already linked to')
+
+        if not self.check_port_types(p0, p1):
+            raise RuntimeError(f'Port type mismatch {p0}, {p1}')
+
+        #
+        # Add devices to the graph if not already there
+        #
+        if p0.device.name not in self.devices:
+            self.add(p0.device)
+        if p1.device.name not in self.devices:
+            self.add(p1.device)
+
+        # Storing the ports in a set so that we can quickly see if they
+        # are linked to already
+        self.ports.add(p0)
+        self.ports.add(p1)
+        # Only update the links if neither are connected
+        # otherwise we are most likely doing a separate graph expansion and
+        # don't want to overwrite the port links that exist
+        if p0.link is None and p1.link is None:
+            p0.link = p1
+            p1.link = p0
+        key = _orderedtuple(p0, p1)
+        self.links[key] = latency
+        if self.expand_new_links is not None:
+            self.expand_new_links.append(key)
+
     def add(self, device: Device, sub: bool = False) -> None:
         """
         Add a Device to the graph.
